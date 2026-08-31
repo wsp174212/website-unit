@@ -1,188 +1,135 @@
-"""Fetch a site's page title and favicon/logo.
+"""Logo storage: validation, stable naming, cleanup.
 
-Strategy, in order of preference:
-1. Icons declared in the page HTML (rel=icon / apple-touch-icon / shortcut icon / og:image)
-2. <site-root>/favicon.ico
-3. Public favicon services (DuckDuckGo, then Google) as a last resort
+Stable naming by URL hash means re-fetching the same site overwrites the same
+file (no duplicate growth) and two different sites can't collide. Deleting a
+site removes its file; :func:`garbage_collect` reclaims any orphans.
 """
 
+from __future__ import annotations
+
+import hashlib
 import re
+from pathlib import Path
 
-import httpx
-from bs4 import BeautifulSoup
+from .config import settings
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 SiteUnitLogoBot/1.0"
+# Recognized image formats by magic bytes. Returns the canonical extension or
+# None for non-images (HTML error pages pretending to be favicons, etc.).
+_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpg"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+    (b"RIFF", "webp"),   # verified below with WEBP tag
 )
 
-REQUEST_TIMEOUT = 10.0
-MAX_LOGO_BYTES = 512 * 1024
 
-_CONTENT_TYPE_EXT = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/svg+xml": "svg",
-    "image/x-icon": "ico",
-    "image/vnd.microsoft.icon": "ico",
-    "image/ico": "ico",
-    "image/x-ico": "ico",
-}
-
-def normalize_url(raw: str) -> str:
-    """Turn 'example.com/x' into 'https://example.com/x'."""
-    raw = raw.strip()
-    if not raw:
-        raise ValueError("URL 不能为空")
-    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
-        raw = "https://" + raw
-    return raw
-
-
-def _pick_extension(content_type: str, body: bytes) -> str | None:
-    ctype = content_type.split(";")[0].strip().lower()
-    if ctype in _CONTENT_TYPE_EXT:
-        return _CONTENT_TYPE_EXT[ctype]
-    if ctype.startswith("image/"):
-        return ctype.split("/")[1].split("+")[0] or None
-    # Some servers serve favicons with wrong or missing content types.
-    if body[:4] == b"\x89PNG":
-        return "png"
-    if body[:3] == b"\xff\xd8\xff":
-        return "jpg"
-    if body[:6] in (b"GIF87a", b"GIF89a"):
-        return "gif"
-    if body[:4] == b"RIFF" and body[8:12] == b"WEBP":
-        return "webp"
-    if body[:1] == b"<" and (b"svg" in body[:512].lower() or b"<svg" in body[:512].lower()):
-        return "svg"
-    if len(body) >= 2 and body[:2] == b"\x00\x00":
+def detect_image_format(content: bytes) -> str | None:
+    """Return canonical image extension (png/jpg/gif/webp/svg/ico) or None."""
+    if not content:
+        return None
+    for magic, ext in _MAGIC:
+        if content.startswith(magic):
+            if ext == "webp":
+                return "webp" if content[8:12] == b"WEBP" else None
+            return ext
+    if content[:4] == b"\x00\x00\x01\x00" or content[:4] == b"\x00\x00\x02\x00":
         return "ico"
+    head = content[:512].lower()
+    if content.lstrip()[:1] == b"<" and (b"<svg" in head or b"xmlns" in head and b"svg" in head):
+        return "svg"
     return None
 
 
-def _candidate_icon_urls(page_url: str, html: str) -> list[str]:
-    """Extract icon URLs declared in the page, most specific first."""
-    soup = BeautifulSoup(html, "html.parser")
-    candidates: list[str] = []
-
-    links = soup.find_all("link")
-    icons = []
-    for l in links:
-        rels = l.get("rel") or []
-        rel_text = " ".join(str(r).lower() for r in rels)
-        if rel_text in ("icon", "shortcut icon", "apple-touch-icon",
-                        "apple-touch-icon-precomposed", "mask-icon", "fluid-icon"):
-            icons.append(l)
-    # Prefer apple-touch-icon (usually larger), then icon, then the rest.
-    def _priority(link) -> int:
-        rel_text = " ".join(str(r).lower() for r in (link.get("rel") or []))
-        order = ["apple-touch-icon-precomposed", "apple-touch-icon", "icon",
-                 "shortcut icon", "fluid-icon", "mask-icon"]
-        for i, name in enumerate(order):
-            if name in rel_text:
-                return i
-        return len(order)
-
-    icons.sort(key=_priority)
-    for link in icons:
-        href = link.get("href")
-        if not href:
-            continue
-        # apple-touch-icon etc. may use sizes/srcset hints; href alone is fine.
-        candidates.append(_urljoin(page_url, href))
-
-    og = soup.find("meta", attrs={"property": "og:image"}) or soup.find(
-        "meta", attrs={"name": "og:image"}
-    )
-    if og and og.get("content"):
-        candidates.append(_urljoin(page_url, og["content"]))
-
-    # Deduplicate while preserving order.
-    seen, unique = set(), []
-    for c in candidates:
-        if c and c not in seen:
-            seen.add(c)
-            unique.append(c)
-    return unique
-
-
-def _urljoin(base: str, href: str) -> str:
-    from urllib.parse import urljoin
-
-    return urljoin(base, href.strip())
-
-
-def _page_title(soup: BeautifulSoup, page_url: str) -> str:
-    if soup.title and soup.title.get_text(strip=True):
-        return soup.title.get_text(strip=True)[:120]
-    og = soup.find("meta", attrs={"property": "og:site_name"})
-    if og and og.get("content"):
-        return og["content"][:120]
-    from urllib.parse import urlparse
-
-    return urlparse(page_url).netloc.removeprefix("www.")
-
-
-async def _try_download_image(client: httpx.AsyncClient, url: str) -> tuple[bytes, str] | None:
-    try:
-        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
-    except httpx.HTTPError:
+def validate_logo(content: bytes) -> str | None:
+    """Return the extension if ``content`` is a real, decodable image, else None."""
+    if len(content) > settings.max_logo_size:
         return None
-    if resp.status_code != 200:
-        return None
-    body = resp.content[:MAX_LOGO_BYTES]
-    if not body:
-        return None
-    ext = _pick_extension(resp.headers.get("content-type", ""), resp.content[:64])
+    ext = detect_image_format(content)
     if ext is None:
         return None
-    return body, ext
+    # Reject anything that is clearly markup pretending to be an image.
+    if content.lstrip()[:1] == b"<" and ext != "svg":
+        return None
+    return ext
 
 
-async def fetch_site_meta(client: httpx.AsyncClient, url: str) -> dict:
-    """Return {'title': str, 'logo': bytes|None, 'ext': str|None}. Never raises for network misses."""
-    result = {"title": "", "logo": None, "ext": None}
-    page_html: str | None = None
+def content_type_hint_to_ext(content_type: str) -> str | None:
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    mapping = {
+        "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+        "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg",
+        "image/x-icon": "ico", "image/vnd.microsoft.icon": "ico",
+        "image/ico": "ico", "image/x-ico": "ico",
+    }
+    if ctype in mapping:
+        return mapping[ctype]
+    if ctype.startswith("image/"):
+        return ctype.split("/")[1].split("+")[0]
+    return None
 
+
+_FILE_RE = re.compile(r"^[0-9a-f]{16}\.(png|jpg|gif|webp|svg|ico)$")
+
+
+def _safe_name(filename: str) -> bool:
+    return bool(_FILE_RE.match(filename or ""))
+
+
+def logo_key_for(url: str) -> str:
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+
+
+def save_logo(content: bytes, ext: str, *, url: str) -> str:
+    """Save ``content`` under a stable name derived from ``url``.
+
+    Overwrites any prior ``<key>.*`` so a re-fetch with a new format can't
+    leave an orphan. Returns the filename (not the full path).
+    """
+    key = logo_key_for(url)
+    filename = f"{key}.{ext}"
+    path = settings.logo_dir / filename
+    # Remove any existing file for this key (different extension).
+    for old in settings.logo_dir.glob(f"{key}.*"):
+        if old.name != filename:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    settings.logo_dir.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return filename
+
+
+def remove_logo(filename: str | None) -> None:
+    if not filename or not _safe_name(filename):
+        return
     try:
-        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
-        if resp.status_code < 400 and "text/html" in resp.headers.get("content-type", ""):
-            page_html = resp.text
-    except httpx.HTTPError:
-        page_html = None
+        (settings.logo_dir / filename).unlink(missing_ok=True)
+    except OSError:
+        pass
 
-    from urllib.parse import urlparse
 
-    if page_html is not None:
-        soup = BeautifulSoup(page_html, "html.parser")
-        result["title"] = _page_title(soup, str(resp.url))
-        for icon_url in _candidate_icon_urls(str(resp.url), page_html):
-            got = await _try_download_image(client, icon_url)
-            if got:
-                result["logo"], result["ext"] = got
-                return result
-    else:
-        result["title"] = urlparse(url).netloc.removeprefix("www.")
+def logo_url_for(filename: str | None) -> str | None:
+    if not filename or not _safe_name(filename):
+        return None
+    return f"/logos/{filename}"
 
-    root = f"{urlparse(url).scheme}://{urlparse(url).netloc}/favicon.ico"
-    got = await _try_download_image(client, root)
-    if got and got[0] not in (b"", None) and not got[0].startswith(b"<html"):
-        result["logo"], result["ext"] = got
-        return result
 
-    domain = urlparse(url).netloc
-    got = await _try_download_image(client, f"https://icons.duckduckgo.com/ip3/{domain}.ico")
-    if got:
-        result["logo"], result["ext"] = got
-        return result
-
-    got = await _try_download_image(
-        client, f"https://www.google.com/s2/favicons?sz=128&domain={domain}"
-    )
-    if got:
-        result["logo"], result["ext"] = got
-    return result
+def garbage_collect(keep_filenames: set[str]) -> int:
+    """Delete logo files not referenced by the DB. Returns the count removed."""
+    removed = 0
+    d = settings.logo_dir
+    if not d.exists():
+        return 0
+    for p in d.iterdir():
+        if not p.is_file() or not _safe_name(p.name):
+            continue
+        if p.name in keep_filenames:
+            continue
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
