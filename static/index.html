@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SiteUnit · 我的站点</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="/static/vendor/vue.global.prod.js"></script>
+</head>
+<body>
+<div id="app" v-cloak>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🚀</span>
+      <div>
+        <h1>SiteUnit</h1>
+        <p class="brand-sub">我的站点导航</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" class="search-icon"><path d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input ref="searchInput" v-model="search" type="text" placeholder="搜索站点…（按 / 聚焦）" @keydown.esc="search = ''">
+        <button v-if="search" class="search-clear" @click="search = ''" title="清空">✕</button>
+      </div>
+      <button class="btn btn-primary" @click="openAdd">
+        <span class="btn-plus">＋</span> 添加站点
+      </button>
+    </div>
+  </header>
+
+  <main v-if="loading" class="state-msg">加载中…</main>
+
+  <main v-else-if="!sites.length" class="empty-state">
+    <div class="empty-emoji">🗂️</div>
+    <h2>还没有任何站点</h2>
+    <p>点击右上角「添加站点」，只需填入 URL，logo 和标题会自动抓取。</p>
+    <button class="btn btn-primary" @click="openAdd">＋ 添加第一个站点</button>
+  </main>
+
+  <main v-else-if="!groups.length" class="empty-state">
+    <div class="empty-emoji">🔍</div>
+    <h2>没有匹配「{{ search }}」的站点</h2>
+    <button class="btn" @click="search = ''">清空搜索</button>
+  </main>
+
+  <main v-else class="groups">
+    <section v-for="g in groups" :key="g.name" class="group">
+      <h2 class="group-title">
+        {{ g.name }}
+        <span class="group-count">{{ g.sites.length }}</span>
+      </h2>
+      <div class="grid">
+        <div v-for="site in g.sites" :key="site.id" class="card"
+             :class="{ busy: busyIds.has(site.id) }" tabindex="0"
+             @click="openSite(site)" @keydown.enter="openSite(site)">
+          <div class="card-actions" @click.stop>
+            <button class="icon-btn" title="重新获取 logo" :disabled="busyIds.has(site.id)"
+                    @click="refetchLogo(site)">↻</button>
+            <button class="icon-btn" title="编辑" @click="openEdit(site)">✎</button>
+            <button class="icon-btn icon-btn-danger" title="删除" @click="removeSite(site)">🗑</button>
+          </div>
+          <div class="card-head">
+            <img v-if="site.logo_url" :src="site.logo_url" class="logo" alt="" loading="lazy"
+                 @error="onLogoError(site)" :hidden="site._logoFailed">
+            <div v-show="!site.logo_url || site._logoFailed" class="logo logo-fallback"
+                 :style="letterStyle(site)">{{ firstLetter(site.name) }}</div>
+            <div class="card-title-wrap">
+              <h3 class="card-name" :title="site.name">{{ site.name }}</h3>
+              <p class="card-url">{{ hostOf(site.url) }}</p>
+            </div>
+          </div>
+          <p v-if="site.description" class="card-desc" :title="site.description">{{ site.description }}</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add / Edit modal -->
+  <div v-if="modal.open" class="overlay" @click.self="closeModal">
+    <div class="modal" role="dialog">
+      <h2>{{ modal.mode === 'add' ? '添加站点' : '编辑站点' }}</h2>
+      <form @submit.prevent="save">
+        <label>
+          <span>URL <i class="req">*</i></span>
+          <input v-model.trim="modal.form.url" type="text" placeholder="https://example.com"
+                 ref="urlInput" required :disabled="modal.saving">
+          <em class="hint">只需填 URL，站点名称和 logo 会自动抓取</em>
+        </label>
+        <label>
+          <span>名称</span>
+          <input v-model.trim="modal.form.name" type="text" placeholder="留空则使用网页标题" :disabled="modal.saving">
+        </label>
+        <div class="form-row">
+          <label>
+            <span>分组</span>
+            <input v-model.trim="modal.form.grp" type="text" list="group-options"
+                   placeholder="如：工具 / 项目 / 学习" :disabled="modal.saving">
+            <datalist id="group-options">
+              <option v-for="g in allGroupNames" :key="g" :value="g"></option>
+            </datalist>
+          </label>
+          <label>
+            <span>描述</span>
+            <input v-model.trim="modal.form.description" type="text" placeholder="一句话说明（可选）" :disabled="modal.saving">
+          </label>
+        </div>
+        <label class="checkbox-row" v-if="modal.mode === 'edit'">
+          <input v-model="modal.form.refetch_logo" type="checkbox" :disabled="modal.saving">
+          <span>重新抓取 logo（当前：{{ modal.currentLogo || '无' }}）</span>
+        </label>
+        <p v-if="modal.error" class="form-error">{{ modal.error }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="closeModal" :disabled="modal.saving">取消</button>
+          <button type="submit" class="btn btn-primary" :disabled="modal.saving || !modal.form.url">
+            <template v-if="modal.saving">
+              <span class="spinner"></span> 抓取中…
+            </template>
+            <template v-else>{{ modal.mode === 'add' ? '添加' : '保存' }}</template>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <transition name="toast">
+    <div v-if="toast" class="toast" :class="'toast-' + toast.type">{{ toast.text }}</div>
+  </transition>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
