@@ -128,9 +128,28 @@ def m002_extend(conn: sqlite3.Connection) -> None:
         _create_index(conn, name, body)
 
 
+def m003_visit_events(conn: sqlite3.Connection) -> None:
+    """Store one append-only row per visit for statistics."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS visit_events (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_id    INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+            visited_at TEXT NOT NULL
+        )
+        """
+    )
+    for name, body in (
+        ("idx_visit_events_visited_at", "visit_events(visited_at)"),
+        ("idx_visit_events_site_visited_at", "visit_events(site_id, visited_at)"),
+    ):
+        _create_index(conn, name, body)
+
+
 MIGRATIONS: list[tuple[int, Migration]] = [
     (1, m001_baseline),
     (2, m002_extend),
+    (3, m003_visit_events),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

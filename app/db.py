@@ -1,4 +1,4 @@
-"""SQLite data access layer (final schema, post-migration 002).
+"""SQLite data access layer (final schema, post-migration 003).
 
 Connection policy:
 - a fresh connection per operation (writes are short, single-user load)
@@ -15,11 +15,12 @@ from __future__ import annotations
 import logging
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
 from .config import settings
+from .logos import logo_url_for
 from .migrations import run_migrations
 from .urlnorm import normalize_url, canonical_key
 
@@ -227,14 +228,111 @@ def delete_site(site_id: int) -> dict | None:
     return site
 
 
+def record_visit_event(
+    conn: sqlite3.Connection, site_id: int, visited_at: str
+) -> None:
+    """Append one visit event inside the caller's transaction."""
+    conn.execute(
+        "INSERT INTO visit_events (site_id, visited_at) VALUES (?, ?)",
+        (site_id, visited_at),
+    )
+
+
 def visit_site(site_id: int) -> bool:
-    """Increment visit_count + bump last_visited_at. Fast, never blocks the click."""
+    """Increment visit_count, bump last_visited_at, and append an event."""
+    now = _now()
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE sites SET visit_count = visit_count + 1, last_visited_at = ? WHERE id = ?",
-            (_now(), site_id),
+            (now, site_id),
         )
+        if cur.rowcount:
+            record_visit_event(conn, site_id, now)
         return cur.rowcount > 0
+
+
+def stats_overview(days: int) -> dict:
+    """Aggregate visits for the last ``days`` UTC calendar days."""
+    now = _now()
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=days - 1)
+    dates = [start_date + timedelta(days=i) for i in range(days)]
+    daily = {date.isoformat(): 0 for date in dates}
+    end_date = today + timedelta(days=1)
+
+    with _connect() as conn:
+        daily_rows = conn.execute(
+            """
+            SELECT substr(ve.visited_at, 1, 10) AS date, COUNT(*) AS count
+            FROM visit_events ve
+            JOIN sites s ON s.id = ve.site_id
+            WHERE s.archived = 0
+              AND ve.visited_at >= ?
+              AND ve.visited_at < ?
+              AND ve.visited_at <= ?
+            GROUP BY date
+            """,
+            (start_date.isoformat(), end_date.isoformat(), now),
+        ).fetchall()
+        for row in daily_rows:
+            daily[row["date"]] = row["count"]
+
+        top_rows = conn.execute(
+            """
+            SELECT s.id AS site_id, s.name, s.url, s.logo_path, COUNT(*) AS visits
+            FROM visit_events ve
+            JOIN sites s ON s.id = ve.site_id
+            WHERE s.archived = 0
+              AND ve.visited_at >= ?
+              AND ve.visited_at < ?
+              AND ve.visited_at <= ?
+            GROUP BY s.id, s.name, s.url, s.logo_path
+            ORDER BY visits DESC, s.id ASC
+            LIMIT 10
+            """,
+            (start_date.isoformat(), end_date.isoformat(), now),
+        ).fetchall()
+
+        group_rows = conn.execute(
+            """
+            SELECT s.group_name AS name, COUNT(*) AS count
+            FROM visit_events ve
+            JOIN sites s ON s.id = ve.site_id
+            WHERE s.archived = 0
+              AND ve.visited_at >= ?
+              AND ve.visited_at < ?
+              AND ve.visited_at <= ?
+            GROUP BY s.group_name
+            """,
+            (start_date.isoformat(), end_date.isoformat(), now),
+        ).fetchall()
+
+    groups = [
+        {"name": row["name"], "count": row["count"]}
+        for row in sorted(
+            group_rows,
+            key=lambda row: (-row["count"], row["name"] == "", row["name"].lower()),
+        )
+    ]
+    return {
+        "days": days,
+        "total_visits": sum(daily.values()),
+        "daily": [
+            {"date": date.isoformat(), "count": daily[date.isoformat()]}
+            for date in dates
+        ],
+        "top_sites": [
+            {
+                "site_id": row["site_id"],
+                "name": row["name"],
+                "url": row["url"],
+                "logo_url": logo_url_for(row["logo_path"]),
+                "visits": row["visits"],
+            }
+            for row in top_rows
+        ],
+        "groups": groups,
+    }
 
 
 def set_health(site_id: int, status: str, http_status: int | None, checked_at: str) -> None:
