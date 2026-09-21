@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
-from .api import health, io, sites, system
+from .api import health, io, sites, stats, system
 from .config import settings
 from .errors import register_handlers
 
@@ -52,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(health.router)
     app.include_router(io.router)
+    app.include_router(stats.router)
 
     # logo dir must exist at import for StaticFiles; lifespan re-creates it.
     settings.logo_dir.mkdir(parents=True, exist_ok=True)

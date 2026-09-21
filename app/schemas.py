@@ -137,6 +137,34 @@ class TagRename(BaseModel):
     name: str
 
 
+# ---------- statistics ----------
+
+class DailyVisit(BaseModel):
+    date: str
+    count: int
+
+
+class TopSiteVisit(BaseModel):
+    site_id: int
+    name: str
+    url: str
+    logo_url: str | None = None
+    visits: int
+
+
+class VisitGroup(BaseModel):
+    name: str
+    count: int
+
+
+class StatsOverview(BaseModel):
+    days: int
+    total_visits: int
+    daily: list[DailyVisit]
+    top_sites: list[TopSiteVisit]
+    groups: list[VisitGroup]
+
+
 # ---------- visit ----------
 
 class VisitResponse(BaseModel):
