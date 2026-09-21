@@ -39,6 +39,9 @@ export const api = {
   bulk: (action, ids, extra = {}) =>
     request('/sites/bulk', { method: 'POST', body: { action, ids, ...extra } }),
 
+  // stats
+  statsOverview: (days) => request('/stats/overview?days=' + days),
+
   // system
   tags: () => request('/tags'),
   groups: () => request('/groups'),
