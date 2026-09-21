@@ -43,6 +43,7 @@
 | static/js/app.js | 🚫 | ✏️ 唯一可改 |
 | static/css/style.css | 🚫 | ✏️ 唯一可改 |
 | static/js/components/stats-panel.js | 🚫 | ➕ 新建 |
+| docs/ | ➕ 新建 | ➕ 新建 |
 | AGENTS.md / CLAUDE.md / docs/collab/* | 🔒 只读冻结 | 🔒 只读冻结 |
 
 ✏️ = 可修改且仅此一方可改；➕ = 新建；🚫 = 禁止触碰；🔒 = 只读冻结。
