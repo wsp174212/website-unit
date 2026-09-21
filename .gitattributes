@@ -1,0 +1,7 @@
+# 仓库内一律 LF；工作区也一律 LF（eol 显式指定后，core.autocrlf 对本仓库不再起作用）
+* text=auto eol=lf
+
+# Windows 专属脚本保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
