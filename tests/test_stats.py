@@ -126,6 +126,8 @@ def test_top_sites_limit_order_and_nullable_logo(client):
         {"name": "A", "count": 1},
         {"name": "", "count": 1},
     ]
+    assert sum(group["count"] for group in result["groups"]) == result["total_visits"]
+    assert len({group["name"] for group in result["groups"]}) == len(result["groups"])
 
 
 def test_days_whitelist_and_default(client):
@@ -203,3 +205,22 @@ def test_v2_database_upgrades_to_v3_and_statistics_work():
     assert overview["daily"][-1]["count"] == 1
     assert overview["top_sites"][0]["site_id"] == 1
     assert overview["groups"] == [{"name": "Legacy", "count": 1}]
+
+def test_groups_use_exact_case_sensitive_names(client):
+    upper = db.insert_site(
+        name="Upper", url="https://upper.example", description="",
+        group_name="AI", logo_path="", logo_source="", tags=[],
+    )
+    lower = db.insert_site(
+        name="Lower", url="https://lower.example", description="",
+        group_name="ai", logo_path="", logo_source="", tags=[],
+    )
+    _insert_event(upper["id"])
+    _insert_event(lower["id"])
+
+    result = client.get("/api/stats/overview?days=7").json()
+    assert result["total_visits"] == 2
+    assert result["groups"] == [
+        {"name": "AI", "count": 1},
+        {"name": "ai", "count": 1},
+    ]

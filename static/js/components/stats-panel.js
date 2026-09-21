@@ -52,7 +52,27 @@ export default {
     },
     topSites() { return (this.data && this.data.top_sites) || []; },
     groups() { return (this.data && this.data.groups) || []; },
-    groupTotal() { return this.groups.reduce((s, g) => s + (g.count || 0), 0); },
+    groupStats() {
+      const groups = this.groups;
+      const total = groups.reduce((sum, group) => sum + (group.count || 0), 0);
+      if (!total) {
+        return groups.map(group => ({ ...group, percent: 0, width: '0%' }));
+      }
+      const shares = groups.map(group => {
+        const raw = ((group.count || 0) / total) * 100;
+        return { raw, floor: Math.floor(raw), remainder: raw % 1 };
+      });
+      let remaining = 100 - shares.reduce((sum, share) => sum + share.floor, 0);
+      shares
+        .map((share, index) => ({ index, remainder: share.remainder }))
+        .sort((a, b) => b.remainder - a.remainder)
+        .slice(0, remaining)
+        .forEach(({ index }) => { shares[index].floor += 1; });
+      return groups.map((group, index) => {
+        const percent = shares[index].floor;
+        return { ...group, percent, width: `${percent}%` };
+      });
+    },
   },
   watch: {
     open: { immediate: true, handler(v) { if (v) this.fetch(); } },
@@ -65,9 +85,6 @@ export default {
       return { background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 70% 45%))` };
     },
     groupName(g) { return g.name || '未分类'; },
-    groupWidth(g) {
-      return this.groupTotal > 0 ? Math.round((g.count / this.groupTotal) * 100) + '%' : '0%';
-    },
     onLogoError(site) { site._logoFailed = true; },
     async fetch() {
       const seq = ++this.reqId;
@@ -145,11 +162,13 @@ export default {
 
       <div class="stat-card">
         <span class="stat-label">分组分布</span>
-        <ul v-if="groups.length" class="stat-groups">
-          <li v-for="(g, i) in groups" :key="i" class="stat-group">
+        <ul v-if="groupStats.length" class="stat-groups">
+          <li v-for="g in groupStats" :key="g.name" class="stat-group"
+              :title="groupName(g) + '：' + g.percent + '%'"
             <span class="stat-group-name" :title="groupName(g)">{{ groupName(g) }}</span>
-            <span class="stat-group-track"><span class="stat-group-fill" :style="{ width: groupWidth(g) }"></span></span>
+            <span class="stat-group-track"><span class="stat-group-fill" :style="{ width: g.width }"></span></span>
             <span class="stat-group-count">{{ g.count }}</span>
+            <span class="stat-group-percent">{{ g.percent }}%</span>
           </li>
         </ul>
         <p v-else class="stats-empty">窗口内暂无分组访问</p>

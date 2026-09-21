@@ -31,6 +31,7 @@ export default {
         { type: 'cmd', label: '查看：已归档', hint: '', action: () => this.$emit('view', 'archived'), icon: '📦' },
         { type: 'cmd', label: '查看：死链', hint: '', action: () => this.$emit('view', 'broken'), icon: '⚠' },
         { type: 'cmd', label: '查看：全部', hint: '', action: () => this.$emit('view', 'all'), icon: '☰' },
+        { type: 'cmd', label: '查看：统计', hint: '', action: () => this.$emit('view', 'stats'), icon: '📊' },
       ];
     },
     rebuild() {
@@ -40,7 +41,7 @@ export default {
         .slice(0, 8)
         .map(s => ({ type: 'site', site: s, label: s.name, hint: hostOf(s.url), icon: '↗' }));
       const cmds = this.commands().filter(c => !ql || c.label.toLowerCase().includes(ql));
-      this.items = [...siteItems, ...cmds].slice(0, 12);
+      this.items = [...siteItems, ...cmds].slice(0, 17);
     },
     choose(item) {
       if (!item) return;

@@ -4,7 +4,7 @@ from app import db
 def test_init_creates_tables_and_backfills_normalized():
     db.init_db()
     info = db.db_info()
-    assert info["schema_version"] == 2
+    assert info["schema_version"] == 3
     assert info["sites"] == 0
 
 

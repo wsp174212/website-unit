@@ -63,7 +63,7 @@ GET /api/stats/overview?days=30
 | `total_visits` | 窗口内访问总数（int），等于 `daily` 各项 count 之和 |
 | `daily` | 长度恰好为 `days` 的数组，按 `date` 升序；`date` 为 `YYYY-MM-DD`（UTC 日期） |
 | `top_sites` | 按 `visits` 降序、至多 10 条；visits 相同按 `site_id` 升序；`logo_url` 可能为 `null` |
-| `groups` | 窗口内有访问的分组，按 `count` 降序；空分组名（未分类）使用 `""`，排在同 count 的最后 |
+| `groups` | 窗口内有访问的分组，按 `count` 降序；空分组名（未分类）使用 `""`，排在同 count 的最后；各 `count` 之和等于 `total_visits`；`name` 按 `group_name` 精确字符串分组且在返回内唯一，不做大小写折叠或去重 |
 
 空数据时：`total_visits = 0`，`daily` 仍含 `days` 个 0 计数桶，
 `top_sites = []`，`groups = []`。

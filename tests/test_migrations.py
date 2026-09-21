@@ -9,7 +9,7 @@ def test_legacy_db_upgrades(tmp_path):
     db.init_db()
 
     info = db.db_info()
-    assert info["schema_version"] == 2
+    assert db.db_info()["schema_version"] == 3
     assert info["sites"] == 1
 
     s = db.get_site(1)
@@ -32,7 +32,7 @@ def test_legacy_db_upgrades(tmp_path):
 def test_migrations_idempotent():
     db.init_db()
     db.init_db()  # second run is a no-op
-    assert db.db_info()["schema_version"] == 2
+    assert db.db_info()["schema_version"] == 3
 
 
 def test_crud_after_migration():
