@@ -6,6 +6,7 @@ import SiteModal from './components/site-modal.js';
 import CommandPalette from './components/command-palette.js';
 import SettingsModal from './components/settings-modal.js';
 import ImportModal from './components/import-modal.js';
+import StatsPanel from './components/stats-panel.js';
 
 const PREFS = {
   theme: localStorage.getItem('siteunit-theme') || 'system',
@@ -14,13 +15,13 @@ const PREFS = {
 };
 
 createApp({
-  components: { SiteModal, CommandPalette, SettingsModal, ImportModal },
+  components: { SiteModal, CommandPalette, SettingsModal, ImportModal, StatsPanel },
   data() {
     return {
       sites: [],
       loading: true,
       search: '',
-      view: 'all',           // all | archived | broken
+      view: 'all',           // all | archived | broken | stats
       sort: PREFS.sort,
       theme: PREFS.theme,
       density: PREFS.density,
@@ -287,7 +288,7 @@ createApp({
       catch (e) { this.notify(e.message, 'error'); }
     },
 
-    switchView(v) { this.view = v; this.search = ''; this.load(); },
+    switchView(v) { this.view = v; this.search = ''; if (v !== 'stats') this.load(); },
     exportJson() { downloadUrl(api.exportJsonUrl(), 'siteunit-export.json'); },
     openSiteFromPalette(site) { this.openSite(site); },
 
@@ -329,7 +330,7 @@ createApp({
         <div><h1>SiteUnit</h1><p class="brand-sub">我的站点导航</p></div>
       </div>
       <nav class="view-tabs" v-if="!selectMode">
-        <button v-for="v in [['all','全部'],['archived','已归档'],['broken','死链']]" :key="v[0]"
+        <button v-for="v in [['all','全部'],['archived','已归档'],['broken','死链'],['stats','统计']]" :key="v[0]"
                 class="tab" :class="{on: view === v[0]}" @click="switchView(v[0])">{{ v[1] }}</button>
       </nav>
       <div class="topbar-actions" v-if="!selectMode">
@@ -354,7 +355,10 @@ createApp({
       </div>
     </header>
 
-    <main v-if="loading" class="state-msg">加载中…</main>
+    <main v-if="view === 'stats'" class="stats-view">
+      <StatsPanel :open="view === 'stats'" @notify="notify"></StatsPanel>
+    </main>
+    <main v-else-if="loading" class="state-msg">加载中…</main>
     <main v-else-if="emptyState" class="empty-state">
       <div class="empty-emoji">{{ emptyState.icon }}</div>
       <h2>{{ emptyState.title }}</h2>
@@ -407,7 +411,7 @@ createApp({
       </section>
     </main>
 
-    <footer class="footbar" v-if="!loading">
+    <footer class="footbar" v-if="!loading && view !== 'stats'">
       <button class="link-btn" @click="selectMode = !selectMode">{{ selectMode ? '退出选择' : '批量选择' }}</button>
       <span class="foot-sep">·</span>
       <span v-if="dbInfo" class="foot-info">{{ dbInfo.sites }} 站点 / {{ dbInfo.tags }} 标签</span>
