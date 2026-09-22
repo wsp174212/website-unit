@@ -18,7 +18,7 @@ from app import config
 def main() -> None:
     parser = argparse.ArgumentParser(description="SiteUnit server")
     parser.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=None, help="bind port (default 8000)")
+    parser.add_argument("--port", type=int, default=None, help="bind port (default 8010)")
     parser.add_argument("--reload", action="store_true", help="auto-reload for development")
     args = parser.parse_args()
 

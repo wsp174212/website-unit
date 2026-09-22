@@ -31,7 +31,7 @@ _ALWAYS_BLOCKED_HOSTS = {
 class Settings:
     # server
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int =8010
     reload: bool = False
 
     # storage

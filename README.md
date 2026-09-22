@@ -31,12 +31,12 @@ pip install -r requirements.txt
 python run.py
 ```
 
-打开 http://127.0.0.1:8000
+打开 http://127.0.0.1:8010
 
 ## 用法
 
 ```bash
-python run.py                        # 默认 127.0.0.1:8000
+python run.py                        # 默认 127.0.0.1:8010
 python run.py --port 9000            # 换端口
 python run.py --host 0.0.0.0         # 局域网访问（手机可用）
 python run.py --reload               # 开发热重载
@@ -79,7 +79,7 @@ python -m app.cli refresh-metadata  # 全站刷新标题/logo
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `SITEUNIT_HOST` | 127.0.0.1 | 绑定地址 |
-| `SITEUNIT_PORT` | 8000 | 端口 |
+| `SITEUNIT_PORT` | 8010 | 端口 |
 | `SITEUNIT_DATA_DIR` | ./data | 数据目录 |
 | `SITEUNIT_ALLOW_PRIVATE_NETWORK_FETCH` | true | 是否允许抓取内网/localhost |
 | `SITEUNIT_VERIFY_TLS` | true | 抓取时是否校验 TLS |

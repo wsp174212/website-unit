@@ -39,7 +39,7 @@ git merge agent/codex-api
 .venv\Scripts\python.exe -m pytest          # 或先激活 venv 后 pytest
 
 # 2) 启动并端到端验证
-python run.py --port 8000
+python run.py --port 8010
 ```
 
 浏览器人工验收清单：
